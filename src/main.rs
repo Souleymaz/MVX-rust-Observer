@@ -1,6 +1,6 @@
 // ============================================================
 // MVX Rust Observer - Étape 2 : Architecture modulaire
-// Fonction fetch_blocks + fetch_transactions (squelette)
+// Fonction fetch_blocks + fetch_transactions (corrigé)
 // ============================================================
 
 use reqwest::Client;
@@ -8,82 +8,89 @@ use serde::Deserialize;
 
 // ============================================================
 // CONFIGURATION
-// Change ces variables pour contrôler le comportement
 // ============================================================
 
-// Nombre de blocs à récupérer (100 pour tester, plus grand pour historique)
 const BLOCK_SIZE: u32 = 100;
-
-// Si true : récupère depuis le début de la blockchain (nonce 1)
-// Si false : récupère les derniers blocs
 const FROM_GENESIS: bool = false;
 
 // ============================================================
-// STRUCTURES DE DONNÉES
+// STRUCTURES DE DONNÉES — api.multiversx.com
 // ============================================================
 
-// Représente un bloc retourné par l'API MultiversX
 #[derive(Debug, Deserialize, Clone)]
 struct Block {
-    nonce: u64,     // Numéro séquentiel du bloc
-    hash: String,   // Hash unique du bloc
-    shard: u32,     // Shard d'appartenance
+    nonce: u64,
+    hash: String,
+    shard: u32,
     #[serde(rename = "txCount", default)]
-    tx_count: u32,  // Nombre de transactions dans ce bloc
+    tx_count: u32,
     #[serde(default)]
-    epoch: u32,     // Epoch de production du bloc
+    epoch: u32,
     #[serde(default)]
-    round: u64,     // Round du consensus
+    round: u64,
     #[serde(default)]
-    timestamp: u64, // Timestamp Unix
+    timestamp: u64,
 }
 
-// Représente une transaction retournée par l'API MultiversX
-// On va remplir les champs au fur et à mesure qu'on découvre l'API
+// ============================================================
+// STRUCTURES DE DONNÉES — gateway.multiversx.com
+// Structure : { data: { block: { miniBlocks: [ { transactions: [...] } ] } } }
+// ============================================================
+
+#[derive(Debug, Deserialize)]
+struct GatewayResponse {
+    data: GatewayData,
+}
+
+#[derive(Debug, Deserialize)]
+struct GatewayData {
+    block: GatewayBlock,
+}
+
+#[derive(Debug, Deserialize)]
+struct GatewayBlock {
+    #[serde(rename = "miniBlocks", default)]
+    mini_blocks: Vec<MiniBlock>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniBlock {
+    #[serde(default)]
+    transactions: Vec<Transaction>,
+}
+
 #[derive(Debug, Deserialize)]
 struct Transaction {
-    #[serde(rename = "txHash")]
-    tx_hash: String,   // Hash unique de la transaction
+    #[serde(rename = "hash", default)]
+    tx_hash: String,
     #[serde(default)]
-    sender: String,    // Adresse de l'expéditeur
+    sender: String,
     #[serde(default)]
-    receiver: String,  // Adresse du destinataire
+    receiver: String,
     #[serde(default)]
-    value: String,     // Montant en EGLD (en denomination minimale)
+    value: String,
     #[serde(default)]
-    status: String,    // Statut : success, fail, pending...
+    status: String,
 }
 
 // ============================================================
-// FONCTION : Récupérer les blocs
+// FONCTION : Récupérer les blocs (api.multiversx.com)
 // ============================================================
-// Si from_genesis = true  → récupère depuis le nonce 1
-// Si from_genesis = false → récupère les derniers blocs
 async fn fetch_blocks(client: &Client, from_genesis: bool, size: u32) -> Vec<Block> {
     println!("─────────────────────────────────────────");
     println!("📦 fetch_blocks() démarré");
     println!("   → Mode : {}", if from_genesis { "DEPUIS LA GENÈSE" } else { "DERNIERS BLOCS" });
     println!("   → Taille demandée : {} blocs", size);
 
-    // Construction de l'URL selon le mode choisi
     let url = if from_genesis {
-        // On commence depuis le nonce 1 (début de la blockchain)
-        format!(
-            "https://api.multiversx.com/blocks?size={}&nonce=1&order=asc",
-            size
-        )
+        format!("https://api.multiversx.com/blocks?size={}&nonce=1&order=asc", size)
     } else {
-        // On récupère les derniers blocs (ordre décroissant par défaut)
-        format!(
-            "https://api.multiversx.com/blocks?size={}",
-            size
-        )
+        format!("https://api.multiversx.com/blocks?size={}", size)
     };
 
     println!("🔗 URL construite : {}", url);
     println!("⏳ Envoi de la requête GET...");
 
-    // Envoi de la requête HTTP
     match client.get(&url).send().await {
         Ok(response) => {
             println!("✅ Réponse reçue ! Status HTTP : {}", response.status());
@@ -92,20 +99,16 @@ async fn fetch_blocks(client: &Client, from_genesis: bool, size: u32) -> Vec<Blo
             match response.json::<Vec<Block>>().await {
                 Ok(blocks) => {
                     println!("✅ {} blocs récupérés et désérialisés !", blocks.len());
-                    blocks // On retourne les blocs
+                    blocks
                 }
                 Err(e) => {
-                    // Erreur de parsing JSON — champ manquant ou mal typé
                     eprintln!("❌ Erreur désérialisation JSON blocs : {}", e);
-                    eprintln!("💡 Vérifie que la struct Block correspond bien à l'API.");
-                    vec![] // On retourne un vecteur vide pour ne pas planter
+                    vec![]
                 }
             }
         }
         Err(e) => {
-            // Erreur réseau
             eprintln!("❌ Erreur connexion API fetch_blocks : {}", e);
-            eprintln!("💡 Vérifie ta connexion et que api.multiversx.com est accessible.");
             vec![]
         }
     }
@@ -113,18 +116,17 @@ async fn fetch_blocks(client: &Client, from_genesis: bool, size: u32) -> Vec<Blo
 
 // ============================================================
 // FONCTION : Récupérer les transactions d'un bloc
+// Endpoint : GET /block/{shard}/by-hash/{hash}?withTxs=true
 // ============================================================
-// Prend le hash d'un bloc et retourne ses transactions
 async fn fetch_transactions(client: &Client, block_hash: &str, shard: u32) -> Vec<Transaction> {
     println!("─────────────────────────────────────────");
     println!("💸 fetch_transactions() démarré");
-    println!("   → Bloc hash : {}...", &block_hash[..8]);
+    println!("   → Bloc hash : {}...", &block_hash[..8.min(block_hash.len())]);
     println!("   → Shard     : {}", shard);
 
-    // URL pour récupérer les transactions d'un bloc via son hash
     let url = format!(
-        "https://api.multiversx.com/blocks/{}/transactions",
-        block_hash
+        "https://gateway.multiversx.com/block/{}/by-hash/{}?withTxs=true",
+        shard, block_hash
     );
 
     println!("🔗 URL construite : {}", url);
@@ -132,11 +134,26 @@ async fn fetch_transactions(client: &Client, block_hash: &str, shard: u32) -> Ve
 
     match client.get(&url).send().await {
         Ok(response) => {
-            println!("✅ Réponse reçue ! Status HTTP : {}", response.status());
+            let status = response.status();
+            println!("✅ Réponse reçue ! Status HTTP : {}", status);
+
+            if !status.is_success() {
+                eprintln!("❌ Erreur HTTP {} pour le bloc {}", status, block_hash);
+                return vec![];
+            }
+
             println!("⏳ Désérialisation JSON transactions en cours...");
 
-            match response.json::<Vec<Transaction>>().await {
-                Ok(txs) => {
+            match response.json::<GatewayResponse>().await {
+                Ok(gateway_resp) => {
+                    let txs: Vec<Transaction> = gateway_resp
+                        .data
+                        .block
+                        .mini_blocks
+                        .into_iter()
+                        .flat_map(|mb| mb.transactions)
+                        .collect();
+
                     println!("✅ {} transactions récupérées pour ce bloc !", txs.len());
                     txs
                 }
@@ -148,7 +165,7 @@ async fn fetch_transactions(client: &Client, block_hash: &str, shard: u32) -> Ve
             }
         }
         Err(e) => {
-            eprintln!("❌ Erreur connexion API fetch_transactions : {}", e);
+            eprintln!("❌ Erreur connexion Gateway fetch_transactions : {}", e);
             vec![]
         }
     }
@@ -162,7 +179,6 @@ async fn main() {
     println!("🚀 Démarrage MVX Observer...");
     println!("📡 Connexion au mainnet MultiversX...");
 
-    // Création du client HTTP réutilisable
     let client = Client::new();
     println!("✅ Client HTTP créé.");
 
@@ -174,7 +190,6 @@ async fn main() {
         return;
     }
 
-    // Affichage du résumé des blocs
     println!("─────────────────────────────────────────");
     println!("📋 RÉSUMÉ DES BLOCS :");
     for block in &blocks {
@@ -184,30 +199,41 @@ async fn main() {
             block.shard,
             block.epoch,
             block.tx_count,
-            &block.hash[..8]
+            &block.hash[..8.min(block.hash.len())]
         );
     }
 
     // ── Étape 2 : Récupération des transactions ────────────
-    // Pour l'instant on teste sur le PREMIER bloc qui a des transactions
     println!("─────────────────────────────────────────");
     println!("🔍 Recherche d'un bloc avec des transactions pour tester...");
 
-    let bloc_avec_txs = blocks.iter().find(|b| b.tx_count > 0);
+    // On ignore le shard metachain (4294967295)
+    let bloc_avec_txs = blocks
+        .iter()
+        .find(|b| b.tx_count > 0 && b.shard != 4294967295);
 
     match bloc_avec_txs {
         Some(block) => {
-            println!("✅ Bloc trouvé : #{} avec {} txs", block.nonce, block.tx_count);
+            println!("✅ Bloc trouvé : #{} avec {} txs (shard {})", block.nonce, block.tx_count, block.shard);
             let txs = fetch_transactions(&client, &block.hash, block.shard).await;
 
             println!("─────────────────────────────────────────");
             println!("💸 TRANSACTIONS DU BLOC #{} :", block.nonce);
+
+            if txs.is_empty() {
+                println!("  ⚠️  Aucune transaction désérialisée (miniBlocks vides ou cross-shard).");
+            }
+
             for tx in &txs {
+                let sender_preview   = if tx.sender.len()   >= 8 { &tx.sender[..8]   } else { &tx.sender };
+                let receiver_preview = if tx.receiver.len() >= 8 { &tx.receiver[..8] } else { &tx.receiver };
+                let hash_preview     = if tx.tx_hash.len()  >= 8 { &tx.tx_hash[..8]  } else { &tx.tx_hash };
+
                 println!(
                     "  TX {} | {} → {} | Valeur: {} | Status: {}",
-                    &tx.tx_hash[..8],
-                    &tx.sender[..8],
-                    &tx.receiver[..8],
+                    hash_preview,
+                    sender_preview,
+                    receiver_preview,
                     tx.value,
                     tx.status
                 );
