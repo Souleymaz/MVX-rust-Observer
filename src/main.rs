@@ -1,63 +1,30 @@
+// ============================================================
+// MVX Rust Observer - Étape 1 : Récupération des 100 derniers blocs
+// API MultiversX Mainnet - sans filtre de champs
+// ============================================================
+
 use reqwest::Client;
 use serde::Deserialize;
 
+// Structure qui représente un bloc retourné par l'API MultiversX
+// Chaque champ correspond exactement à une clé JSON retournée par l'API
+// #[serde(default)] évite une erreur si le champ est absent dans la réponse
 #[derive(Debug, Deserialize)]
 struct Block {
-    nonce: u64,
-    hash: String,
-    shard: u32,
+    nonce: u64,      // Numéro séquentiel du bloc (comme un ID)
+    hash: String,    // Identifiant unique du bloc en hexadécimal
+    shard: u32,      // Numéro du shard (MultiversX est multi-shard)
     #[serde(rename = "txCount", default)]
-    tx_count: u32,
+    tx_count: u32,   // Nombre de transactions — l'API appelle ça "txCount"
     #[serde(default)]
-    epoch: u32,
+    epoch: u32,      // Epoch (période) dans laquelle ce bloc a été produit
     #[serde(default)]
-    round: u64,
+    round: u64,      // Round du consensus pour ce bloc
     #[serde(default)]
-    timestamp: u64,
+    timestamp: u64,  // Timestamp Unix du bloc
 }
 
 #[tokio::main]
 async fn main() {
-    println!("🚀 Démarrage MVX Observer...");
-    println!("📡 Connexion au mainnet MultiversX...");
+    println!("🚀
 
-    let client = Client::new();
-
-    // On enlève le filtre fields pour récupérer tous les champs
-    let url = "https://api.multiversx.com/blocks?size=100";
-
-    println!("🔗 Appel API : {}", url);
-
-    match client.get(url).send().await {
-        Ok(response) => {
-            println!("✅ Réponse reçue, status : {}", response.status());
-
-            match response.json::<Vec<Block>>().await {
-                Ok(blocks) => {
-                    println!("✅ {} blocs récupérés !", blocks.len());
-                    println!("─────────────────────────────────────────");
-
-                    for block in &blocks {
-                        println!(
-                            "Bloc #{} | Shard {} | Epoch {} | Txs: {} | Hash: {}",
-                            block.nonce,
-                            block.shard,
-                            block.epoch,
-                            block.tx_count,
-                            &block.hash[..8]
-                        );
-                    }
-
-                    println!("─────────────────────────────────────────");
-                    println!("✅ Terminé. {} blocs affichés.", blocks.len());
-                }
-                Err(e) => {
-                    eprintln!("❌ Erreur désérialisation JSON : {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("❌ Erreur connexion API : {}", e);
-        }
-    }
-}
