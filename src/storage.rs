@@ -1,6 +1,5 @@
 use anyhow::Result;
 use clickhouse::Client;
-
 use crate::config::ClickhouseConfig;
 use crate::models::{BlockRow, TransactionRow};
 
@@ -13,71 +12,70 @@ pub fn create_client(cfg: &ClickhouseConfig) -> Client {
 }
 
 pub async fn init_schema(client: &Client, database: &str) -> Result<()> {
-    tracing::info!("🗄️  Initialisation du schema ClickHouse...");
+    tracing::info!("️ Initialisation du schema ClickHouse...");
 
+    // Création de la base
     client
         .query(&format!("CREATE DATABASE IF NOT EXISTS {}", database))
         .execute()
         .await?;
 
+    // Table blocks
     client
         .query(
             "CREATE TABLE IF NOT EXISTS blocks (
-                nonce       UInt64,
-                hash        String,
-                shard       UInt32,
-                tx_count    UInt32,
-                epoch       UInt32,
-                round       UInt64,
-                timestamp   UInt64,
-                INDEX idx_shard (shard) TYPE minmax GRANULARITY 1,
-                INDEX idx_epoch (epoch) TYPE minmax GRANULARITY 1
+                nonce UInt64,
+                hash String,
+                shard UInt32,
+                tx_count UInt32,
+                epoch UInt32,
+                round UInt64,
+                timestamp UInt64
             )
             ENGINE = ReplacingMergeTree()
-            ORDER BY (shard, nonce)
-            PARTITION BY toYYYYMM(toDateTime(timestamp))",
+            PARTITION BY toYYYYMM(toDateTime(timestamp))
+            ORDER BY (shard, nonce)"
         )
         .execute()
         .await?;
 
+    // Table transactions
     client
         .query(
             "CREATE TABLE IF NOT EXISTS transactions (
-                tx_hash     String,
-                block_hash  String,
+                tx_hash String,
+                block_hash String,
                 block_nonce UInt64,
-                shard       UInt32,
-                sender      String,
-                receiver    String,
-                value_egld  Float64,
-                value_raw   String,
-                status      String,
-                gas_used    UInt64,
-                gas_price   UInt64,
-                gas_limit   UInt64,
-                nonce       UInt64,
-                tx_type     String,
-                timestamp   UInt64,
-                INDEX idx_sender   (sender)   TYPE bloom_filter GRANULARITY 1,
-                INDEX idx_receiver (receiver) TYPE bloom_filter GRANULARITY 1,
-                INDEX idx_type     (tx_type)  TYPE set(10)      GRANULARITY 1
+                shard UInt32,
+                sender String,
+                receiver String,
+                value_egld Float64,
+                value_raw String,
+                status String,
+                gas_used UInt64,
+                gas_price UInt64,
+                gas_limit UInt64,
+                nonce UInt64,
+                tx_type String,
+                timestamp UInt64
             )
             ENGINE = ReplacingMergeTree()
-            ORDER BY (shard, block_nonce, tx_hash)
-            PARTITION BY toYYYYMM(toDateTime(timestamp))",
+            PARTITION BY toYYYYMM(toDateTime(timestamp))
+            ORDER BY (shard, block_nonce, tx_hash)"
         )
         .execute()
         .await?;
 
+    // Table sync_checkpoint
     client
         .query(
             "CREATE TABLE IF NOT EXISTS sync_checkpoint (
-                shard       UInt32,
-                last_nonce  UInt64,
-                updated_at  DateTime DEFAULT now()
+                shard UInt32,
+                last_nonce UInt64,
+                updated_at DateTime DEFAULT now()
             )
             ENGINE = ReplacingMergeTree(updated_at)
-            ORDER BY shard",
+            ORDER BY shard"
         )
         .execute()
         .await?;
@@ -128,6 +126,6 @@ pub async fn save_checkpoint(client: &Client, shard: u32, last_nonce: u64) -> Re
         .bind(last_nonce)
         .execute()
         .await?;
-    tracing::debug!("💾 Checkpoint shard {} → nonce {}", shard, last_nonce);
+    tracing::debug!("Checkpoint shard {} → nonce {}", shard, last_nonce);
     Ok(())
 }
