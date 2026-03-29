@@ -1,0 +1,19 @@
+[api]
+base_url = "https://api.multiversx.com"
+gateway_url = "https://gateway.multiversx.com"
+block_size = 100
+request_delay_ms = 50
+
+[sync]
+from_genesis = true
+genesis_nonce = 1
+workers_per_shard = 4
+shards = [0, 1, 2]
+
+[clickhouse]
+url = "http://localhost:8123"
+database = "mvx"
+username = "default"
+password = ""
+batch_size = 1000
+flush_interval_secs = 5
